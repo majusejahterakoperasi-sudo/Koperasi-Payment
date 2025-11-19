@@ -1,0 +1,358 @@
+﻿<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KoPay — Koperasi Payment</title>
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #0a0f24;
+        color: #fff;
+        margin: 0;
+        padding: 0;
+    }
+    h2 { margin-top: 0; }
+    .container {
+        max-width: 1100px;
+        margin: auto;
+        padding: 20px;
+    }
+    .card {
+        background: #111a33;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    input, select, button {
+        padding: 10px;
+        width: 100%;
+        margin-top: 5px;
+        border-radius: 6px;
+        border: none;
+    }
+    button {
+        background: #00c4ff;
+        cursor: pointer;
+        color: #000;
+        margin-top: 10px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+    }
+    th, td {
+        border-bottom: 1px solid #333;
+        padding: 8px;
+    }
+    .delete-btn {
+        background: red;
+        color: #fff;
+        padding: 5px;
+        cursor: pointer;
+    }
+    .hidden { display: none; }
+
+    #paySuccessBtn {
+        background: #00ff90;
+        font-weight: bold;
+        display: none;
+    }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+    <h1>KoPay — Koperasi Payment</h1>
+
+    <!-- MANAGEMEN APLIKASI -->
+    <div class="card">
+        <h2>1. Manajemen Aplikasi</h2>
+
+        <label>Nama Siswa</label>
+        <input id="nameInput" placeholder="Contoh: Ahmad">
+
+        <label>Kelas (10-12)</label>
+        <select id="classInput">
+            <option value="">Pilih kelas...</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+        </select>
+
+        <button onclick="addStudent()">Tambah Siswa</button>
+
+        <label>Cari Siswa</label>
+        <input id="searchInput" oninput="renderStudents()" placeholder="Cari nama atau kelas...">
+
+        <table>
+            <thead>
+                <tr><th>Nama</th><th>Kelas</th><th>Poin</th><th>Aksi</th></tr>
+            </thead>
+            <tbody id="studentTable"></tbody>
+        </table>
+    </div>
+
+    <!-- PEMBAYARAN -->
+    <div class="card">
+        <h2>2. Penanganan Pembayaran</h2>
+
+        <label>Pilih Siswa</label>
+        <select id="paySelect"></select>
+
+        <label>Jumlah Pembayaran (Rp)</label>
+        <input type="number" id="payAmount" placeholder="Masukkan nominal">
+
+        <button onclick="createQR()">Buat Kode QR</button>
+
+        <div id="qrBox" class="hidden">
+            <p>Kode QR berlaku selama <span id="qrTime">10</span> detik</p>
+            <img id="qrImg" src="https://i.imgur.com/6hpBCV0.jpeg" width="200">
+            <p id="qrStatus">Status: Aktif</p>
+
+            <button id="paySuccessBtn" onclick="finishPayment()">✔ Pembayaran Berhasil</button>
+        </div>
+
+        <h3>Riwayat Transaksi</h3>
+        <table>
+            <thead>
+                <tr><th>Waktu</th><th>Nama</th><th>Jumlah</th><th>Poin</th></tr>
+            </thead>
+            <tbody id="txTable"></tbody>
+        </table>
+    </div>
+
+    <!-- PENUKARAN POIN -->
+    <div class="card">
+        <h2>3. Penukaran Poin</h2>
+
+        <label>Pilih Siswa</label>
+        <select id="redeemSelect"></select>
+
+        <label>Jumlah Poin</label>
+        <input type="number" id="redeemInput">
+
+        <button onclick="redeemPoints()">Tukar Poin</button>
+
+        <h3>Daftar Poin Siswa</h3>
+        <table>
+            <thead>
+                <tr><th>Nama</th><th>Kelas</th><th>Poin</th></tr>
+            </thead>
+            <tbody id="pointsTable"></tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+// === DEFAULT DATABASE ===
+const defaultStudents = [
+    {id:"S1", name:"Andi",   class:"10", points:0},
+    {id:"S2", name:"Budi",   class:"10", points:0},
+    {id:"S3", name:"Citra",  class:"10", points:0},
+    {id:"S4", name:"Dewi",   class:"11", points:0},
+    {id:"S5", name:"Eka",    class:"11", points:0},
+    {id:"S6", name:"Fajar",  class:"11", points:0},
+    {id:"S7", name:"Gilang", class:"12", points:0},
+    {id:"S8", name:"Hana",   class:"12", points:0},
+    {id:"S9", name:"Indra",  class:"12", points:0},
+    {id:"S10",name:"Joko",   class:"12", points:0}
+];
+
+if (!localStorage.getItem("students"))
+    localStorage.setItem("students", JSON.stringify(defaultStudents));
+if (!localStorage.getItem("transactions"))
+    localStorage.setItem("transactions", JSON.stringify([]));
+
+function getStudents() { return JSON.parse(localStorage.getItem("students")); }
+function saveStudents(d) { localStorage.setItem("students", JSON.stringify(d)); }
+function getTx() { return JSON.parse(localStorage.getItem("transactions")); }
+function saveTx(d) { localStorage.setItem("transactions", JSON.stringify(d)); }
+
+// RENDER TABLES
+function renderStudents() {
+    const table = document.getElementById("studentTable");
+    const search = document.getElementById("searchInput").value.toLowerCase();
+    const data = getStudents();
+    table.innerHTML = "";
+
+    data.filter(s => s.name.toLowerCase().includes(search) || s.class.includes(search))
+        .forEach(s => {
+            table.innerHTML += `
+                <tr>
+                    <td>${s.name}</td>
+                    <td>${s.class}</td>
+                    <td>${s.points}</td>
+                    <td><button class="delete-btn" onclick="deleteStudent('${s.id}')">Hapus</button></td>
+                </tr>
+            `;
+        });
+
+    updateSelects();
+    renderPoints();
+}
+renderStudents();
+
+// ADD STUDENT
+function addStudent() {
+    const name = document.getElementById("nameInput").value.trim();
+    const cls = document.getElementById("classInput").value;
+
+    if (!name || !cls) return alert("Nama dan kelas wajib diisi!");
+
+    const data = getStudents();
+    data.push({ id:"S"+Date.now(), name:name, class:cls, points:0 });
+
+    saveStudents(data);
+    renderStudents();
+}
+
+// DELETE STUDENT
+function deleteStudent(id) {
+    if (!confirm("Hapus siswa ini?")) return;
+    saveStudents(getStudents().filter(s => s.id !== id));
+    renderStudents();
+}
+
+// UPDATE SELECT DROPDOWNS
+function updateSelects() {
+    const students = getStudents();
+    const pay = document.getElementById("paySelect");
+    const redeem = document.getElementById("redeemSelect");
+
+    pay.innerHTML = `<option value="">-- pilih siswa --</option>`;
+    redeem.innerHTML = `<option value="">-- pilih siswa --</option>`;
+
+    students.forEach(s => {
+        pay.innerHTML += `<option value="${s.id}">${s.name} (Kelas ${s.class})</option>`;
+        redeem.innerHTML += `<option value="${s.id}">${s.name} (Kelas ${s.class})</option>`;
+    });
+}
+
+// === QR PAYMENT SYSTEM ===
+let qrTimer;
+let currentPayStudent = null;
+let currentAmount = 0;
+
+function createQR() {
+    const id = document.getElementById("paySelect").value;
+    const amt = Number(document.getElementById("payAmount").value);
+
+    if (!id) return alert("Pilih siswa!");
+    if (amt < 1000) return alert("Minimal pembayaran 1000!");
+
+    currentPayStudent = id;
+    currentAmount = amt;
+
+    document.getElementById("qrBox").classList.remove("hidden");
+    document.getElementById("qrTime").innerText = 10;
+    document.getElementById("qrStatus").innerText = "Status: Aktif";
+    document.getElementById("paySuccessBtn").style.display = "block";
+
+    let time = 10;
+    if (qrTimer) clearInterval(qrTimer);
+
+    qrTimer = setInterval(() => {
+        time--;
+        document.getElementById("qrTime").innerText = time;
+
+        if (time <= 0) {
+            clearInterval(qrTimer);
+            hideQR();
+        }
+    }, 1000);
+}
+
+function hideQR() {
+    document.getElementById("qrBox").classList.add("hidden");
+    document.getElementById("paySuccessBtn").style.display = "none";
+}
+
+// ✔ Pembayaran Berhasil (Baru Masuk Poin)
+function finishPayment() {
+    const students = getStudents();
+    const student = students.find(s => s.id === currentPayStudent);
+
+    const pts = Math.floor(currentAmount / 1000);
+    student.points += pts;
+
+    saveStudents(students);
+    renderStudents();
+
+    // Simpan transaksi
+    const tx = getTx();
+    tx.unshift({
+        time: new Date().toLocaleString(),
+        name: student.name,
+        amount: currentAmount,
+        points: pts
+    });
+    saveTx(tx);
+    renderTx();
+
+    alert("Pembayaran berhasil! Poin ditambahkan.");
+
+    hideQR();
+}
+
+// RENDER TRANSACTIONS
+function renderTx() {
+    const table = document.getElementById("txTable");
+    table.innerHTML = "";
+    getTx().forEach(t => {
+        table.innerHTML += `
+            <tr>
+                <td>${t.time}</td>
+                <td>${t.name}</td>
+                <td>Rp ${t.amount.toLocaleString()}</td>
+                <td>${t.points}</td>
+            </tr>
+        `;
+    });
+}
+renderTx();
+
+// REDEEM POINTS
+function redeemPoints() {
+    const id = document.getElementById("redeemSelect").value;
+    const amt = Number(document.getElementById("redeemInput").value);
+
+    if (!id) return alert("Pilih siswa!");
+    if (amt <= 0) return alert("Masukkan poin yang valid!");
+
+    const students = getStudents();
+    const student = students.find(s => s.id === id);
+
+    if (student.points < amt) return alert("Poin tidak cukup!");
+
+    student.points -= amt;
+    saveStudents(students);
+
+    renderStudents();
+    alert("Poin berhasil ditukar!");
+}
+
+// RENDER POINTS TABLE
+function renderPoints() {
+    const table = document.getElementById("pointsTable");
+    table.innerHTML = "";
+    getStudents().forEach(s => {
+        table.innerHTML += `
+            <tr>
+                <td>${s.name}</td>
+                <td>${s.class}</td>
+                <td>${s.points}</td>
+            </tr>
+        `;
+    });
+}
+renderPoints();
+
+</script>
+
+</body>
+</html>
